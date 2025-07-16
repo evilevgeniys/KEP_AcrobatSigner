@@ -13,7 +13,7 @@ function replaceTextWithStamp() {
         
         // Шаг 2: Получаем имя штампа
         var stampName = app.response({
-            cQuestion: "Введите точное имя штампа из коллекции (например 'Approved'):\n\nДоступные штампы можно посмотреть через меню: Инструменты > Штампы > Управление штампами",
+            cQuestion: "Введите точное имя штампа из коллекции (например 'Approved'):",
             cTitle: "Выбор штампа",
             cDefault: "Approved",
             bPassword: false
@@ -21,34 +21,24 @@ function replaceTextWithStamp() {
         
         if (!stampName) return; // Пользователь отменил
         
-        // Шаг 3: Получаем размер штампа
-        var stampSize = app.response({
-            cQuestion: "Введите размер штампа в пунктах (рекомендуется 40-100, по умолчанию 60):",
-            cTitle: "Размер штампа",
-            cDefault: "60",
-            bPassword: false
-        });
-        
-        stampSize = parseInt(stampSize) || 60;
-        
-        // Шаг 4: Ищем текст в документе
+        // Шаг 3: Ищем текст в документе
         var foundItems = findTextInDocument(searchKeyword);
         if (foundItems.length === 0) {
             app.alert("Текст '" + searchKeyword + "' не найден в документе.", 1);
             return;
         }
         
-        // Шаг 5: Добавляем штампы
-        processFoundItemsWithStamp(foundItems, stampName, stampSize);
+        // Шаг 4: Добавляем штампы и стираем текст
+        var successCount = processFoundItemsWithStamp(foundItems, stampName);
         
-        app.alert("Успешно добавлено " + foundItems.length + " штампов для слова '" + searchKeyword + "'!", 1);
+        app.alert("Успешно заменено " + successCount + " из " + foundItems.length + " вхождений слова '" + searchKeyword + "'", 1);
     } catch (e) {
         app.alert("Ошибка: " + e.message, 1);
     }
 }
 
-// Поиск текста в документе
-function findTextInDocument(searchText, caseSensitive = false) {
+// Поиск текста в документе с дополнительной информацией о размере
+function findTextInDocument(searchText) {
     if (!searchText || typeof searchText !== 'string') {
         throw new Error('Неверный текст для поиска');
     }
@@ -56,7 +46,7 @@ function findTextInDocument(searchText, caseSensitive = false) {
     const results = [];
     const doc = this;
     const numPages = doc.numPages;
-    const searchStr = caseSensitive ? searchText : searchText.toLowerCase();
+    const searchStr = searchText.toLowerCase();
 
     for (let pageNum = 0; pageNum < numPages; pageNum++) {
         try {
@@ -65,16 +55,23 @@ function findTextInDocument(searchText, caseSensitive = false) {
             for (let wordIdx = 0; wordIdx < numWords; wordIdx++) {
                 try {
                     const word = doc.getPageNthWord(pageNum, wordIdx, false);
-                    const compareWord = caseSensitive ? word : word.toLowerCase();
                     
-                    if (compareWord.indexOf(searchStr) !== -1) {
+                    if (word.toLowerCase().indexOf(searchStr) !== -1) {
                         const quads = doc.getPageNthWordQuads(pageNum, wordIdx);
+                        const rect = calculateBoundingRect(quads);
+                        
+                        // Получаем матрицу преобразования для текста
+                        const textWidth = rect[2] - rect[0];
+                        const textHeight = rect[3] - rect[1];
+                        
                         results.push({
-                            page: pageNum + 1, // Для пользователя страницы нумеруются с 1
+                            page: pageNum + 1,
                             wordIndex: wordIdx,
                             text: word,
                             quads: quads,
-                            rect: calculateBoundingRect(quads)
+                            rect: rect,
+                            width: textWidth,
+                            height: textHeight
                         });
                     }
                 } catch (e) {
@@ -89,65 +86,44 @@ function findTextInDocument(searchText, caseSensitive = false) {
     return results;
 }
 
-// Расчет ограничивающего прямоугольника для текста
-function calculateBoundingRect(quads) {
-    let left = Number.MAX_VALUE;
-    let bottom = Number.MAX_VALUE;
-    let right = -Number.MAX_VALUE;
-    let top = -Number.MAX_VALUE;
-
-    for (let i = 0; i < 8; i += 2) {
-        left = Math.min(left, quads[0][i]);
-        bottom = Math.min(bottom, quads[0][i+1]);
-        right = Math.max(right, quads[0][i]);
-        top = Math.max(top, quads[0][i+1]);
-    }
-
-    return [left, bottom, right, top];
-}
-
-// Добавление штампа на позицию текста
-function addStampAtPosition(stampName, position, stampSize) {
+// Добавление штампа с сохранением размера текста
+function addStampAtPosition(stampName, position) {
     try {
-        var page = position.page - 1; // Страницы в JS нумеруются с 0
+        var page = position.page - 1;
         var rect = position.rect;
+        var textWidth = position.width;
+        var textHeight = position.height;
         
-        // Рассчитываем центр области текста
-        var centerX = (rect[0] + rect[2]) / 2;
-        var centerY = (rect[1] + rect[3]) / 2;
+        // Сначала стираем текст
+        eraseText(position);
         
-        // Размер штампа (квадратный)
-        var halfSize = stampSize / 2;
-        
-        // Создаем штамп
+        // Добавляем штамп с размерами исходного текста
         var annot = this.addAnnot({
             type: "Stamp",
             page: page,
-            rect: [centerX - halfSize, centerY - halfSize, centerX + halfSize, centerY + halfSize],
+            rect: [rect[0], rect[1], rect[0] + textWidth, rect[1] + textHeight],
             AP: stampName,
             author: "AutoStamp",
             contents: "Добавлено автоматически",
             color: color.black,
             opacity: 1,
-            locked: false
+            locked: false,
+            rotation: 0
         });
         
-        // Скрываем оригинальный текст
-        hideOriginalText(position);
-        
+        return true;
     } catch (e) {
         console.println("Ошибка при добавлении штампа: " + e.message);
-        throw e;
+        return false;
     }
 }
 
-// Скрытие оригинального текста
-function hideOriginalText(position) {
+// Стирание текста
+function eraseText(position) {
     try {
         var page = position.page - 1;
         var rect = position.rect;
         
-        // Добавляем белый прямоугольник поверх текста
         this.addAnnot({
             type: "Square",
             page: page,
@@ -159,24 +135,28 @@ function hideOriginalText(position) {
             locked: true
         });
     } catch (e) {
-        console.println("Не удалось скрыть текст: " + e.message);
+        console.println("Ошибка при стирании текста: " + e.message);
     }
 }
 
 // Обработка всех найденных элементов
-function processFoundItemsWithStamp(items, stampName, stampSize) {
+function processFoundItemsWithStamp(items, stampName) {
+    var successCount = 0;
     for (var i = 0; i < items.length; i++) {
         try {
-            addStampAtPosition(stampName, items[i], stampSize);
+            if (addStampAtPosition(stampName, items[i])) {
+                successCount++;
+            }
         } catch (e) {
             console.println("Ошибка при обработке элемента " + i + ": " + e.message);
         }
     }
+    return successCount;
 }
 
-// Проверка версии и запуск
+// Запуск скрипта
 if (app.viewerVersion >= 8) {
-    if (this.addAnnot) { // Проверка, что это Acrobat Pro
+    if (this.addAnnot) {
         replaceTextWithStamp();
     } else {
         app.alert("Для работы скрипта требуется Adobe Acrobat Pro", 1);
