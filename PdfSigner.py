@@ -109,7 +109,7 @@ def main():
         
         counter = 1
         while os.path.exists(output_path):
-            output_path = os.path.join(output_dir, f"signed_{counter}_{os.path.basename(pdf_path)}")
+            output_path = os.path.join(output_dir, f"{os.path.basename(pdf_path)}_Подписанный")
             counter += 1
         
         find_and_replace_text_with_image(pdf_path, output_path, search_text, image_path, erase_original)

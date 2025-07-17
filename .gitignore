@@ -1,4 +1,7 @@
 *.pdf 
 *.png 
+*.dwg
+*.dwl
+*.dwl2
 
 venv
