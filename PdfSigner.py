@@ -48,9 +48,9 @@ def find_and_replace_text_with_image(pdf_path, output_path, search_text, image_p
           # Создаем прямоугольник для изображения (можно настроить размер)
             img_rect = fitz.Rect(
                 inst.x0, 
-                inst.y0,  # Смещение вверх для лучшего позиционирования
+                inst.y0 - 2,  # Смещение вверх для лучшего позиционирования
                 inst.x0 + (inst.x1 - inst.x0),  # Увеличиваем ширину в 2 раза
-                inst.y1   # Смещение вниз
+                inst.y1 + 2  # Смещение вниз
             )
             
             # Вставка изображения (3 разных метода)
@@ -59,7 +59,7 @@ def find_and_replace_text_with_image(pdf_path, output_path, search_text, image_p
                 page.insert_image(
                     img_rect,
                     filename=image_path,
-                    keep_proportion=True  # Сохраняем пропорции
+                    keep_proportion=False  # Сохраняем пропорции
                 )
             except:
                 try:
