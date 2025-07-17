@@ -1,44 +1,43 @@
 // Main function
-function addSignatureFromPNG() {
+function replaceTextWithSignature() {
     try {
         // Step 1: Get search keyword from user
         var searchKeyword = app.response({
-            cQuestion: "Введите слово для поиска (например 'План'):",
+            cQuestion: "Введите слово для поиска (например 'Подпись'):",
             cTitle: "Ключевое слово",
-            cDefault: "План",
+            cDefault: "Подпись",
             bPassword: false
         });
         
         if (!searchKeyword) return; // User cancelled
         
-        // Step 2: Get PNG file path via user input
-        var pngPath = getPNGFilePath();
-        if (!pngPath) return; // User cancelled
+        // Step 2: Get image file path via file dialog
+        var imagePath = getImageFilePath();
+        if (!imagePath) return; // User cancelled
         
-        // Step 3: Import PNG as icon named "TempSign"
-        importIconFromPNG(pngPath, "TempSign");
-        
-        // Step 4: Find keyword in document
-        var foundItems = findTextInDocument(searchKeyword);
+        // Step 3: Find keyword in document
+        var doc = this;
+        var foundItems = findTextInDocument(doc, searchKeyword);
         if (foundItems.length === 0) {
             app.alert("Текст '" + searchKeyword + "' не найден в документе.", 1);
             return;
         }
         
-        // Step 5: Process each found item
-        processFoundItems(foundItems, "TempSign");
+        // Step 4: Process each found item - replace text with image
+        processFoundItems(doc, foundItems, imagePath);
         
-        app.alert("Подписи успешно добавлены для слова '" + searchKeyword + "'!", 1);
+        app.alert("Успешно заменено " + foundItems.length + " вхождений текста '" + searchKeyword + "' на изображение.", 1);
     } catch (e) {
         app.alert("Ошибка: " + e.message, 1);
+        console.println("Error: " + e.toString());
     }
 }
 
-// Get PNG file path via dialog
-function getPNGFilePath() {
+// Get image file path via dialog
+function getImageFilePath() {
     var response = app.response({
-        cQuestion: "Введите полный путь к PNG файлу (например, C:\\signature.png):",
-        cTitle: "Выбор файла подписи",
+        cQuestion: "Введите полный путь к файлу изображения (PNG/JPG):",
+        cTitle: "Выбор файла изображения",
         cDefault: "",
         bPassword: false
     });
@@ -46,53 +45,37 @@ function getPNGFilePath() {
     if (response === null || response === "") return null;
     
     // Basic validation
-    if (!response.toLowerCase().endsWith(".png")) {
-        app.alert("Файл должен иметь расширение .png", 1);
+    var ext = response.toLowerCase();
+    if (!ext.endsWith(".png") && !ext.endsWith(".jpg") && !ext.endsWith(".jpeg")) {
+        app.alert("Файл должен иметь расширение .png, .jpg или .jpeg", 1);
         return null;
     }
     
     return response;
 }
 
-// Import PNG as icon
-function importIconFromPNG(filePath, iconName) {
-    try {
-        // First remove icon if it exists
-        try {
-            this.removeIcon(iconName);
-        } catch (e) {}
-        
-        // Import new icon
-        this.importIcon(filePath, iconName);
-    } catch (e) {
-        throw new Error("Не удалось импортировать иконку. Проверьте путь к файлу.\n" + e.message);
-    }
-}
-
-function findTextInDocument(searchText, caseSensitive = false) {
+function findTextInDocument(doc, searchText, caseSensitive) {
     if (!searchText || typeof searchText !== 'string') {
         throw new Error('Неверный текст для поиска');
     }
 
-    const results = [];
-    const doc = this;
-    const numPages = doc.numPages;
-    const searchStr = caseSensitive ? searchText : searchText.toLowerCase();
+    var results = [];
+    var numPages = doc.numPages;
+    var searchStr = caseSensitive ? searchText : searchText.toLowerCase();
 
-    for (let pageNum = 0; pageNum < numPages; pageNum++) {
+    for (var pageNum = 0; pageNum < numPages; pageNum++) {
         try {
-            // Получаем количество слов на странице
-            const numWords = doc.getPageNumWords(pageNum);
+            var numWords = doc.getPageNumWords(pageNum);
             
-            for (let wordIdx = 0; wordIdx < numWords; wordIdx++) {
+            for (var wordIdx = 0; wordIdx < numWords; wordIdx++) {
                 try {
-                    const word = doc.getPageNthWord(pageNum, wordIdx, false);
-                    const compareWord = caseSensitive ? word : word.toLowerCase();
+                    var word = doc.getPageNthWord(pageNum, wordIdx, false);
+                    var compareWord = caseSensitive ? word : word.toLowerCase();
                     
                     if (compareWord.indexOf(searchStr) !== -1) {
-                        const quads = doc.getPageNthWordQuads(pageNum, wordIdx);
+                        var quads = doc.getPageNthWordQuads(pageNum, wordIdx);
                         results.push({
-                            page: pageNum + 1,
+                            page: pageNum + 1, // 1-based for user
                             wordIndex: wordIdx,
                             text: word,
                             quads: quads,
@@ -112,73 +95,77 @@ function findTextInDocument(searchText, caseSensitive = false) {
 }
 
 function calculateBoundingRect(quads) {
-    let left = Number.MAX_VALUE;
-    let bottom = Number.MAX_VALUE;
-    let right = -Number.MAX_VALUE;
-    let top = -Number.MAX_VALUE;
-
-    for (let i = 0; i < 8; i += 2) {
-        left = Math.min(left, quads[0][i]);
-        bottom = Math.min(bottom, quads[0][i+1]);
-        right = Math.max(right, quads[0][i]);
-        top = Math.max(top, quads[0][i+1]);
+    if (!quads || !quads[0] || quads[0].length < 8) {
+        return [0, 0, 100, 50]; // Default size if something went wrong
     }
-
-    return [left, bottom, right, top];
+    
+    var q = quads[0];
+    var left = Math.min(q[0], q[2], q[4], q[6]);
+    var bottom = Math.min(q[1], q[3], q[5], q[7]);
+    var right = Math.max(q[0], q[2], q[4], q[6]);
+    var top = Math.max(q[1], q[3], q[5], q[7]);
+    
+    // Add some padding
+    var padding = 2;
+    return [left-padding, bottom-padding, right+padding, top+padding];
 }
-// Process found items (add signature and optionally remove text)
-function processFoundItems(items, iconName) {
+
+// Process found items - replace text with image
+function processFoundItems(doc, items, imagePath) {
     for (var i = 0; i < items.length; i++) {
         var item = items[i];
-        addSignatureAtPosition(iconName, item);
-        removeText(item); // Опционально: затереть оригинальный текст
+        replaceTextWithImage(doc, item.page, item.rect, imagePath);
     }
 }
 
-// Add signature at position
-function addSignatureAtPosition(iconName, position) {
+// Replace text area with image
+function replaceTextWithImage(doc, pageNum, rect, imagePath) {
     try {
-        var page = position.pageNum;
-        var quad = position.rect[0];
+        var page = pageNum - 1; // convert to 0-based
         
-        // Calculate position (simplified)
-        var left = Math.min(quad[0], quad[2], quad[4], quad[6]);
-        var bottom = Math.min(quad[1], quad[3], quad[5], quad[7]);
-        var right = Math.max(quad[0], quad[2], quad[4], quad[6]);
-        var top = Math.max(quad[1], quad[3], quad[5], quad[7]);
-        
-        // Create signature field
-        var fieldName = "Signature_" + page + "_";
-        var field = this.addField(fieldName, "signature", page, [left, bottom, right, top]);
-        
-        // Apply icon
-        field.buttonSetIcon(iconName);
-        field.display = display.hidden;
-    } catch (e) {
-        console.println("Ошибка при добавлении подписи: " + e.message);
-    }
-}
-
-// Remove original text (optional)
-function removeText(position) {
-    try {
-        var quad = position.rect[0];
-        this.addAnnot({
+        // First add white rectangle to erase text
+        doc.addAnnot({
             type: "Square",
-            page: position.pageNum,
-            rect: quad,
+            page: page,
+            rect: rect,
             strokeColor: color.white,
             fillColor: color.white,
             opacity: 1
         });
+        
+        // Then add image using ImportDataObject and addIcon
+        var imageName = "img_" + pageNum + "_" + new Date().getTime();
+        
+        // Import image as data object
+        doc.importDataObject(imageName, imagePath);
+        
+        // Create icon from imported image
+        var icon = doc.createIcon({
+            cData: imageName,
+            nPage: page
+        });
+        
+        // Add icon annotation
+        doc.addIcon({
+            cName: imageName,
+            nPage: page,
+            nPosX: rect[0],
+            nPosY: rect[3],
+            nWidth: rect[2] - rect[0],
+            nHeight: rect[3] - rect[1]
+        });
+        
     } catch (e) {
-        console.println("Не удалось затереть текст: " + e.message);
+        console.println("Ошибка при замене текста изображением: " + e.message);
+        throw e;
     }
 }
 
 // Execute
 if (app.viewerVersion >= 8) {
-    addSignatureFromPNG();
+    console.show();
+    console.clear();
+    replaceTextWithSignature();
 } else {
     app.alert("Требуется Adobe Acrobat версии 8 или выше", 1);
 }
