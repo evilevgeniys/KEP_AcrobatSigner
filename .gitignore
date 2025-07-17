@@ -3,5 +3,9 @@
 *.dwg
 *.dwl
 *.dwl2
+*.spec
+
 
 venv
+dist
+build
